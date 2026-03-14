@@ -1,9 +1,23 @@
 import type { LlmTrace, LlmTraceStatus, RunMode, RunReport, RunSummary } from "@re-ai/shared";
 
-const API_BASE_URL = process.env.API_BASE_URL ?? "http://localhost:8787";
-const API_KEY = process.env.API_KEY;
+function readEnv(name: string): string | undefined {
+  const value = process.env[name];
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
 
 async function callApi<T>(path: string, init?: RequestInit): Promise<T> {
+  const API_BASE_URL = readEnv("API_BASE_URL") ?? "http://localhost:8787";
+  const API_KEY = readEnv("API_KEY");
+
   if (!API_KEY) {
     throw new Error("API_KEY is required for web server API calls");
   }
