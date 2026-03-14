@@ -7,6 +7,7 @@ import { initDb } from "./db.js";
 import { createOpenAiProvider } from "./openaiProvider.js";
 import {
   createRun,
+  getLatestBaselineSnapshot,
   getRun,
   getRunIssues,
   listLlmTraces,
@@ -18,9 +19,30 @@ import {
 import { processRun } from "./pipeline.js";
 import { apiKeyMiddleware } from "./auth.js";
 import { fetchBaselineOffers } from "./xano.js";
+import type { BaselineOffer } from "./types.js";
 
 initDb();
 const provider = createOpenAiProvider();
+
+async function loadBaselineOffersWithFallback(): Promise<BaselineOffer[]> {
+  try {
+    const live = await fetchBaselineOffers();
+    if (live.length > 0) {
+      return live;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown baseline fetch error";
+    console.error(`[baseline] live fetch failed: ${message}`);
+  }
+
+  const snapshot = getLatestBaselineSnapshot();
+  if (snapshot && snapshot.length > 0) {
+    console.warn("[baseline] using latest snapshot fallback");
+    return snapshot;
+  }
+
+  return [];
+}
 
 function normalizeCasinoKey(name: string): string {
   return name.toLowerCase().replace(/\s+/g, " ").trim();
@@ -39,7 +61,7 @@ app.get("/api/runs", (c) => {
 });
 
 app.get("/api/baseline/stats", async (c) => {
-  const baseline = await fetchBaselineOffers();
+  const baseline = await loadBaselineOffersWithFallback();
   const states = ["NJ", "MI", "PA", "WV"] as const;
   const byState = states.map((state) => {
     const stateRows = baseline.filter((item) => item.state === state);
@@ -59,7 +81,7 @@ app.get("/api/baseline/stats", async (c) => {
 });
 
 app.get("/api/baseline/casinos", async (c) => {
-  const baseline = await fetchBaselineOffers();
+  const baseline = await loadBaselineOffersWithFallback();
   const byCasino = new Map<
     string,
     { state: StateAbbreviation; casinoName: string; offerCount: number; bestKnownBonus: number; headlineOffer: string }
@@ -94,7 +116,7 @@ app.get("/api/baseline/casinos", async (c) => {
 });
 
 app.get("/api/baseline/offers", async (c) => {
-  const baseline = await fetchBaselineOffers();
+  const baseline = await loadBaselineOffersWithFallback();
   const stateQuery = (c.req.query("state") ?? "").toUpperCase();
   const casinoQuery = (c.req.query("casino") ?? "").trim().toLowerCase();
 

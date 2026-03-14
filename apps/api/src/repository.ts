@@ -159,6 +159,28 @@ export function insertBaselineSnapshot(runId: string, offers: BaselineOffer[]): 
     .run(runId, JSON.stringify(offers), nowIso());
 }
 
+export function getLatestBaselineSnapshot(): BaselineOffer[] | null {
+  const row = sqlite
+    .prepare(
+      `SELECT data_json
+       FROM source_offers_snapshot
+       ORDER BY id DESC
+       LIMIT 1`
+    )
+    .get() as { data_json: string } | undefined;
+
+  if (!row?.data_json) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(row.data_json) as BaselineOffer[];
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function insertDiscoveredCasinos(runId: string, casinos: DiscoveredCasino[]): void {
   const stmt = sqlite.prepare(
     `INSERT INTO discovered_casinos
@@ -312,7 +334,14 @@ export function listRuns(limit = 20): RunSummary[] {
 }
 
 export function mapRunToSummary(row: RunRow): RunSummary {
-  const summary = row.summary_json ? (JSON.parse(row.summary_json) as RunSummary) : null;
+  let summary: RunSummary | null = null;
+  if (row.summary_json) {
+    try {
+      summary = JSON.parse(row.summary_json) as RunSummary;
+    } catch {
+      summary = null;
+    }
+  }
   if (summary) {
     return {
       ...summary,
