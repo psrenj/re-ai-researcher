@@ -27,12 +27,7 @@ const envSchema = z.object({
 });
 
 export function getServerEnv(): ServerEnv {
-  const parsed = envSchema.parse({
-    API_BASE_URL: normalizeEnvValue("API_BASE_URL"),
-    NEXT_PUBLIC_API_BASE_URL: normalizeEnvValue("NEXT_PUBLIC_API_BASE_URL"),
-    API_KEY: normalizeEnvValue("API_KEY"),
-    RESEARCH_API_KEY: normalizeEnvValue("RESEARCH_API_KEY")
-  });
+  const parsed = envSchema.parse(process.env);
 
   const baseUrlCandidate =
     parsed.API_BASE_URL ?? parsed.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8787";
@@ -47,7 +42,7 @@ export function getServerEnv(): ServerEnv {
       RESEARCH_API_KEY: Boolean(parsed.RESEARCH_API_KEY)
     };
     throw new Error(
-      `API_KEY is required for web server API calls (env presence: ${JSON.stringify(envPresence)})`
+      `API_KEY is required for web server API calls (env presence: ${JSON.stringify(envPresence)}) \n ${JSON.stringify(process.env)}`
     );
   }
 
