@@ -30,14 +30,12 @@ async function loadBaselineOffersWithFallback(): Promise<BaselineOffer[]> {
     if (live.length > 0) {
       return live;
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown baseline fetch error";
-    console.error(`[baseline] live fetch failed: ${message}`);
+  } catch {
+    // Ignore live-baseline fetch failures and fallback to latest snapshot.
   }
 
   const snapshot = getLatestBaselineSnapshot();
   if (snapshot && snapshot.length > 0) {
-    console.warn("[baseline] using latest snapshot fallback");
     return snapshot;
   }
 

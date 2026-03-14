@@ -41,7 +41,7 @@ export default async function TrackedVsLatestRunPage() {
       <div className="space-y-6 lg:ml-80 lg:pl-6">
         <header className="rounded-2xl border border-border bg-card p-6">
           <p className="text-xs font-semibold uppercase tracking-wide text-accent">Casino Offer AI Researcher</p>
-          <h1 className="mt-2 text-3xl font-bold">Tracked Offers vs Latest Run</h1>
+          <h1 className="mt-2 text-3xl font-bold">Latest Run Comparison</h1>
           <p className="mt-2 text-sm text-slate-600">
             Actionable differences for baseline-tracked casinos against the latest completed run.
           </p>

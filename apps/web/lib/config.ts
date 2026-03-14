@@ -35,15 +35,7 @@ export function getServerEnv(): ServerEnv {
   const API_KEY = parsed.API_KEY ?? parsed.RESEARCH_API_KEY;
 
   if (!API_KEY) {
-    const envPresence = {
-      API_BASE_URL: Boolean(parsed.API_BASE_URL),
-      NEXT_PUBLIC_API_BASE_URL: Boolean(parsed.NEXT_PUBLIC_API_BASE_URL),
-      API_KEY: Boolean(parsed.API_KEY),
-      RESEARCH_API_KEY: Boolean(parsed.RESEARCH_API_KEY)
-    };
-    throw new Error(
-      `API_KEY is required for web server API calls (env presence: ${JSON.stringify(envPresence)}) \n ${JSON.stringify(process.env)}`
-    );
+    throw new Error("API_KEY is required for web server API calls");
   }
 
   return { API_BASE_URL, API_KEY };
