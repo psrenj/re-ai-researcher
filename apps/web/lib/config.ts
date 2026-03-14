@@ -5,20 +5,6 @@ type ServerEnv = {
   API_KEY: string;
 };
 
-function normalizeEnvValue(name: string): string | undefined {
-  const value = process.env[name];
-  if (!value) return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
 const envSchema = z.object({
   API_BASE_URL: z.string().optional(),
   NEXT_PUBLIC_API_BASE_URL: z.string().optional(),
