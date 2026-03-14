@@ -4,7 +4,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { listRuns } from "@/lib/api";
 
 export default async function RunsPage() {
-  const runs = await listRuns().catch(() => []);
+  let runs = [] as Awaited<ReturnType<typeof listRuns>>;
+  let runsError: string | null = null;
+  try {
+    runs = await listRuns();
+  } catch (error) {
+    runsError = error instanceof Error ? error.message : "Failed to load runs";
+  }
 
   return (
     <div className="space-y-6">
@@ -17,6 +23,9 @@ export default async function RunsPage() {
           <p className="text-xs font-semibold uppercase tracking-wide text-accent">Run History</p>
           <h1 className="mt-2 text-3xl font-bold">Recent Runs</h1>
           <p className="mt-2 text-sm text-slate-600">Review status, trigger mode, and open each run report.</p>
+          {runsError ? (
+            <p className="mt-2 text-sm text-rose-700">Unable to load runs: {runsError}</p>
+          ) : null}
         </header>
 
         <Card>

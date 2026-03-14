@@ -4,10 +4,30 @@ import { StateBreakdown } from "@/components/StateBreakdown";
 import { getBaselineStats, getRunReport, listRuns } from "@/lib/api";
 
 export default async function HomePage() {
-  const runs = await listRuns().catch(() => []);
+  let runs = [] as Awaited<ReturnType<typeof listRuns>>;
+  let runsError: string | null = null;
+  try {
+    runs = await listRuns();
+  } catch (error) {
+    runsError = error instanceof Error ? error.message : "Failed to load runs";
+  }
   const latest = runs[0];
-  const report = latest ? await getRunReport(latest.id).catch(() => null) : null;
-  const baselineStats = await getBaselineStats().catch(() => null);
+  let report = null as Awaited<ReturnType<typeof getRunReport>> | null;
+  let reportError: string | null = null;
+  if (latest) {
+    try {
+      report = await getRunReport(latest.id);
+    } catch (error) {
+      reportError = error instanceof Error ? error.message : "Failed to load latest report";
+    }
+  }
+  let baselineStats = null as Awaited<ReturnType<typeof getBaselineStats>> | null;
+  let baselineError: string | null = null;
+  try {
+    baselineStats = await getBaselineStats();
+  } catch (error) {
+    baselineError = error instanceof Error ? error.message : "Failed to load baseline stats";
+  }
   const stateBreakdown = (["NJ", "MI", "PA", "WV"] as const).map((state) => {
     const tracked =
       baselineStats?.byState.find((item) => item.state === state)?.trackedCasinos ??
@@ -38,6 +58,13 @@ export default async function HomePage() {
           <p className="mt-3 text-xs text-slate-500">
             Use actions panel for full run or stage-specific run modes.
           </p>
+          {runsError ? <p className="mt-2 text-sm text-rose-700">Runs load error: {runsError}</p> : null}
+          {baselineError ? (
+            <p className="mt-1 text-sm text-rose-700">Baseline load error: {baselineError}</p>
+          ) : null}
+          {reportError ? (
+            <p className="mt-1 text-sm text-rose-700">Latest report load error: {reportError}</p>
+          ) : null}
           {baselineStats ? (
             <p className="mt-1 text-xs text-slate-500">
               Baseline tracked casinos: {baselineStats.totalTrackedCasinos} ({baselineStats.totalOfferRows} offer rows)
