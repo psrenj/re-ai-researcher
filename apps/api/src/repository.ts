@@ -14,70 +14,18 @@ import type {
 import { sqlite } from "./db.js";
 import type { BaselineOffer, DiscoveredCasino, PipelineResult, RunUsage } from "./types.js";
 import { nowIso } from "./utils.js";
-
-interface RunRow {
-  id: string;
-  trigger: "manual" | "scheduled";
-  mode: RunMode;
-  status: "queued" | "running" | "completed" | "failed";
-  created_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-  summary_json: string | null;
-  report_json: string | null;
-  usage_json: string | null;
-  states_json: string;
-  error_message: string | null;
-}
-
-interface RunIssueRow {
-  severity: "low" | "medium" | "high";
-  category: string;
-  title: string;
-  details: string;
-  status: "open" | "resolved";
-}
-
-interface RunStageEventRow {
-  stage: string;
-  status: "completed" | "skipped" | "failed";
-  reason: string | null;
-  impact: string | null;
-  suggested_next_step: string | null;
-  created_at: string;
-}
-
-interface LlmTraceRow {
-  id: number;
-  run_id: string;
-  stage: "casino_discovery" | "offer_discovery";
-  target: string;
-  model: string;
-  attempt: number;
-  status: LlmTraceStatus;
-  input_text: string;
-  raw_response_json: string | null;
-  extracted_text: string | null;
-  error_message: string | null;
-  latency_ms: number;
-  created_at: string;
-}
-
-interface DiscoveredCasinoRow {
-  state: string;
-  casino_name: string;
-  confidence: number;
-  is_missing: number;
-  citations_json: string;
-}
-
-interface ReportSnapshotPayload {
-  discoveredCasinos: DiscoveredCasino[];
-  missingCasinos: PipelineResult["missingCasinos"];
-  offerComparisons: PipelineResult["offerComparisons"];
-  issues: PipelineResult["issues"];
-  usage: RunUsage;
-}
+import {
+  buildRunReport,
+  buildRunSummary,
+  mapDiscoveredCasinoRow,
+  mapLlmTraceRow,
+  mapRunIssueRow,
+  mapRunToSummary as mapRunToSummaryInternal,
+  mapRunStageEventRow,
+  normalizeOfferComparisons,
+  type ReportSnapshotPayload
+} from "./repositoryHelpers.js";
+import type { DiscoveredCasinoRow, LlmTraceRow, RunIssueRow, RunRow, RunStageEventRow } from "./repositoryRows.js";
 
 export function createRun(params: {
   id: string;
@@ -296,19 +244,7 @@ export function getRunReport(id: string): RunReport | null {
   }
 
   const baseReport = JSON.parse(row.report_json) as RunReport;
-  const normalizedOfferComparisons = baseReport.offerComparisons.map((comparison) => {
-    if (!comparison.currentOffer && comparison.discoveredOffer && comparison.verdict === "unclear") {
-      return {
-        ...comparison,
-        verdict: "better" as const,
-        rationale:
-          comparison.rationale && comparison.rationale.length > 0
-            ? comparison.rationale
-            : "No tracked offer exists; discovered offer is treated as better."
-      };
-    }
-    return comparison;
-  });
+  const normalizedOfferComparisons = normalizeOfferComparisons(baseReport.offerComparisons);
   const stageEvents = getRunStageEvents(id);
   const issues = getRunIssues(id);
   const discoveredCasinos =
@@ -330,48 +266,11 @@ export function listRuns(limit = 20): RunSummary[] {
     .prepare(`SELECT * FROM runs ORDER BY created_at DESC LIMIT ?`)
     .all(limit) as RunRow[];
 
-  return rows.map((row) => mapRunToSummary(row));
+  return rows.map((row) => mapRunToSummaryInternal(row));
 }
 
 export function mapRunToSummary(row: RunRow): RunSummary {
-  let summary: RunSummary | null = null;
-  if (row.summary_json) {
-    try {
-      summary = JSON.parse(row.summary_json) as RunSummary;
-    } catch {
-      summary = null;
-    }
-  }
-  if (summary) {
-    return {
-      ...summary,
-      mode: summary.mode ?? row.mode ?? "full"
-    };
-  }
-  return {
-    id: row.id,
-    status: row.status,
-    trigger: row.trigger,
-    mode: row.mode ?? "full",
-    startedAt: row.started_at ?? undefined,
-    completedAt: row.completed_at ?? undefined,
-    createdAt: row.created_at,
-    missingCount: 0,
-    comparisonCount: 0,
-    betterCount: 0,
-    unclearCount: 0,
-    costEstimateUsd: 0
-  };
-}
-
-function toPublicDiscoveredCasinos(items: DiscoveredCasino[]): DiscoveredCasinoCoverage[] {
-  return items.map((item) => ({
-    state: item.state,
-    casinoName: item.casinoName,
-    confidence: item.confidence,
-    citations: item.citations,
-    isMissing: item.isMissing
-  }));
+  return mapRunToSummaryInternal(row);
 }
 
 function getDiscoveredCasinosByRunId(runId: string): DiscoveredCasinoCoverage[] {
@@ -384,61 +283,7 @@ function getDiscoveredCasinosByRunId(runId: string): DiscoveredCasinoCoverage[] 
     )
     .all(runId) as DiscoveredCasinoRow[];
 
-  return rows.map((row) => ({
-    state: row.state as DiscoveredCasinoCoverage["state"],
-    casinoName: row.casino_name,
-    confidence: row.confidence,
-    isMissing: row.is_missing === 1,
-    citations: JSON.parse(row.citations_json) as DiscoveredCasinoCoverage["citations"]
-  }));
-}
-
-function buildRunSummary(params: {
-  run: RunRow;
-  status: RunSummary["status"];
-  missingCasinos: PipelineResult["missingCasinos"];
-  offerComparisons: PipelineResult["offerComparisons"];
-  usage: RunUsage;
-  completedAt?: string;
-}): RunSummary {
-  return {
-    id: params.run.id,
-    status: params.status,
-    trigger: params.run.trigger,
-    mode: params.run.mode ?? "full",
-    startedAt: params.run.started_at ?? undefined,
-    completedAt: params.completedAt,
-    createdAt: params.run.created_at,
-    missingCount: params.missingCasinos.length,
-    comparisonCount: params.offerComparisons.length,
-    betterCount: params.offerComparisons.filter((item) => item.verdict === "better").length,
-    unclearCount: params.offerComparisons.filter((item) => item.verdict === "unclear").length,
-    costEstimateUsd: params.usage.estimatedCostUsd
-  };
-}
-
-function buildRunReport(params: {
-  summary: RunSummary;
-  discoveredCasinos: DiscoveredCasino[];
-  missingCasinos: PipelineResult["missingCasinos"];
-  offerComparisons: PipelineResult["offerComparisons"];
-  issues: PipelineResult["issues"];
-  usage: RunUsage;
-}): RunReport {
-  return {
-    run: params.summary,
-    discoveredCasinos: toPublicDiscoveredCasinos(params.discoveredCasinos),
-    missingCasinos: params.missingCasinos,
-    offerComparisons: params.offerComparisons,
-    issues: params.issues,
-    stageEvents: [],
-    usage: params.usage,
-    limitations: [
-      "AI-based research can miss or misread promotion details.",
-      "Public source availability can change or be incomplete.",
-      "Heuristic normalization may underfit complex promotional mechanics."
-    ]
-  };
+  return rows.map(mapDiscoveredCasinoRow);
 }
 
 export function persistRunProgress(runId: string, snapshot: ReportSnapshotPayload): RunReport {
@@ -509,13 +354,7 @@ export function getRunIssues(runId: string): RunIssue[] {
   const rows = sqlite
     .prepare(`SELECT severity, category, title, details, status FROM run_issues WHERE run_id = ? ORDER BY id ASC`)
     .all(runId) as RunIssueRow[];
-  return rows.map((row) => ({
-    severity: row.severity,
-    category: row.category,
-    title: row.title,
-    details: row.details,
-    status: row.status
-  }));
+  return rows.map(mapRunIssueRow);
 }
 
 export function getRunStageEvents(runId: string): RunStageEvent[] {
@@ -527,14 +366,7 @@ export function getRunStageEvents(runId: string): RunStageEvent[] {
        ORDER BY id ASC`
     )
     .all(runId) as RunStageEventRow[];
-  return rows.map((row) => ({
-    stage: row.stage,
-    status: row.status,
-    reason: row.reason ?? undefined,
-    impact: row.impact ?? undefined,
-    suggestedNextStep: row.suggested_next_step ?? undefined,
-    createdAt: row.created_at
-  }));
+  return rows.map(mapRunStageEventRow);
 }
 
 export function listLlmTraces(params: {
@@ -567,19 +399,5 @@ export function listLlmTraces(params: {
     )
     .all(...values) as LlmTraceRow[];
 
-  return rows.map((row) => ({
-    id: row.id,
-    runId: row.run_id,
-    stage: row.stage,
-    target: row.target,
-    model: row.model,
-    attempt: row.attempt,
-    status: row.status,
-    inputText: row.input_text,
-    rawResponseJson: row.raw_response_json ?? undefined,
-    extractedText: row.extracted_text ?? undefined,
-    errorMessage: row.error_message ?? undefined,
-    latencyMs: row.latency_ms,
-    createdAt: row.created_at
-  }));
+  return rows.map(mapLlmTraceRow);
 }

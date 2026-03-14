@@ -46,6 +46,57 @@ function normalizeCasinoKey(name: string): string {
   return name.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function parseRunMode(value: unknown): RunMode {
+  if (value === "discover_casinos" || value === "discover_offers" || value === "full") {
+    return value;
+  }
+  return "full";
+}
+
+function parseRunStates(value: unknown): StateAbbreviation[] {
+  if (!Array.isArray(value)) {
+    return [...SUPPORTED_STATES];
+  }
+
+  const requestedStates = value.filter((state): state is StateAbbreviation =>
+    SUPPORTED_STATES.includes(state as StateAbbreviation)
+  );
+  return requestedStates.length > 0 ? requestedStates : [...SUPPORTED_STATES];
+}
+
+function parseMaxCasinos(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.floor(value);
+}
+
+async function queueRun(params: {
+  trigger: "manual" | "scheduled";
+  body: unknown;
+  provider: ReturnType<typeof createOpenAiProvider>;
+}): Promise<{ runId: string; status: "queued"; trigger?: "scheduled"; mode: RunMode; maxCasinos?: number }> {
+  const payload =
+    params.body && typeof params.body === "object"
+      ? (params.body as { states?: unknown; mode?: unknown; maxCasinos?: unknown })
+      : {};
+  const mode = parseRunMode(payload.mode);
+  const states = parseRunStates(payload.states);
+  const maxCasinos = parseMaxCasinos(payload.maxCasinos);
+
+  const runId = randomUUID();
+  createRun({ id: runId, trigger: params.trigger, mode, states });
+  void processRun({ runId, states, mode, maxCasinosPerRun: maxCasinos, provider: params.provider });
+
+  return {
+    runId,
+    status: "queued",
+    ...(params.trigger === "scheduled" ? { trigger: "scheduled" as const } : {}),
+    mode,
+    maxCasinos
+  };
+}
+
 const app = new Hono();
 app.use("/api/*", apiKeyMiddleware);
 
@@ -134,59 +185,15 @@ app.get("/api/baseline/offers", async (c) => {
 });
 
 app.post("/api/runs", async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as {
-    states?: StateAbbreviation[];
-    mode?: RunMode;
-    maxCasinos?: number;
-  };
-  const mode: RunMode =
-    body.mode === "discover_casinos" || body.mode === "discover_offers" || body.mode === "full"
-      ? body.mode
-      : "full";
-
-  const requestedStates = (body.states ?? [...SUPPORTED_STATES]).filter((state): state is StateAbbreviation =>
-    SUPPORTED_STATES.includes(state)
-  );
-  const states = requestedStates.length > 0 ? requestedStates : [...SUPPORTED_STATES];
-  const maxCasinos =
-    typeof body.maxCasinos === "number" && Number.isFinite(body.maxCasinos) && body.maxCasinos > 0
-      ? Math.floor(body.maxCasinos)
-      : undefined;
-
-  const runId = randomUUID();
-  createRun({ id: runId, trigger: "manual", mode, states });
-
-  void processRun({ runId, states, mode, maxCasinosPerRun: maxCasinos, provider });
-
-  return c.json({ runId, status: "queued", mode, maxCasinos }, 202);
+  const body = await c.req.json().catch(() => ({}));
+  const queued = await queueRun({ trigger: "manual", body, provider });
+  return c.json(queued, 202);
 });
 
 app.post("/api/internal/scheduled-run", async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as {
-    states?: StateAbbreviation[];
-    mode?: RunMode;
-    maxCasinos?: number;
-  };
-  const mode: RunMode =
-    body.mode === "discover_casinos" || body.mode === "discover_offers" || body.mode === "full"
-      ? body.mode
-      : "full";
-
-  const requestedStates = (body.states ?? [...SUPPORTED_STATES]).filter((state): state is StateAbbreviation =>
-    SUPPORTED_STATES.includes(state)
-  );
-  const states = requestedStates.length > 0 ? requestedStates : [...SUPPORTED_STATES];
-  const maxCasinos =
-    typeof body.maxCasinos === "number" && Number.isFinite(body.maxCasinos) && body.maxCasinos > 0
-      ? Math.floor(body.maxCasinos)
-      : undefined;
-
-  const runId = randomUUID();
-  createRun({ id: runId, trigger: "scheduled", mode, states });
-
-  void processRun({ runId, states, mode, maxCasinosPerRun: maxCasinos, provider });
-
-  return c.json({ runId, status: "queued", trigger: "scheduled", mode, maxCasinos }, 202);
+  const body = await c.req.json().catch(() => ({}));
+  const queued = await queueRun({ trigger: "scheduled", body, provider });
+  return c.json(queued, 202);
 });
 
 app.get("/api/runs/:runId", (c) => {
