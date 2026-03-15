@@ -124,6 +124,11 @@ export function initDb(): void {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS run_cancellations (
+      run_id TEXT PRIMARY KEY,
+      requested_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_llm_traces_run_id ON llm_traces(run_id);
     CREATE INDEX IF NOT EXISTS idx_llm_traces_stage_status ON llm_traces(stage, status);
   `);

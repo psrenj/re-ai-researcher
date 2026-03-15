@@ -1,6 +1,8 @@
 import type { DiscoveredOffer, OfferRecord, RunMode, StateAbbreviation } from "@re-ai/shared";
 import { config } from "./config.js";
 import {
+  clearRunCancellation,
+  isRunCancellationRequested,
   insertBaselineSnapshot,
   insertComparisons,
   insertDiscoveredCasinos,
@@ -24,6 +26,19 @@ import {
   runWithConcurrency
 } from "./pipelineHelpers.js";
 
+class RunCancelledError extends Error {
+  constructor() {
+    super("Cancelled by user");
+    this.name = "RunCancelledError";
+  }
+}
+
+function assertNotCancelled(runId: string): void {
+  if (isRunCancellationRequested(runId)) {
+    throw new RunCancelledError();
+  }
+}
+
 export async function processRun(params: {
   runId: string;
   states: StateAbbreviation[];
@@ -43,7 +58,9 @@ export async function processRun(params: {
   let offerCalls = 0;
 
   try {
+    assertNotCancelled(params.runId);
     setRunRunning(params.runId);
+    assertNotCancelled(params.runId);
     persistRunProgress(params.runId, {
       discoveredCasinos,
       missingCasinos,
@@ -52,7 +69,9 @@ export async function processRun(params: {
       usage: calculateUsage(discoveryCalls, offerCalls)
     });
 
+    assertNotCancelled(params.runId);
     const baselineOffers = await fetcher();
+    assertNotCancelled(params.runId);
     insertBaselineSnapshot(params.runId, baselineOffers);
     insertStageEvent({ runId: params.runId, stage: "baseline_ingest", status: "completed" });
 
@@ -76,11 +95,13 @@ export async function processRun(params: {
       usage: calculateUsage(discoveryCalls, offerCalls)
     });
 
+    assertNotCancelled(params.runId);
     if (mode !== "discover_offers") {
       const discoveryResults = await runWithConcurrency(
         states,
         config.OPENAI_CONCURRENCY,
         async (state) => {
+          assertNotCancelled(params.runId);
           const knownCasinos = Array.from(
             new Set((baselineByState.get(state) ?? []).map((offer) => offer.casinoName))
           );
@@ -111,6 +132,7 @@ export async function processRun(params: {
       );
 
       const discoveryFailures = discoveryResults.filter((item) => item.failed).length;
+      assertNotCancelled(params.runId);
       for (const result of discoveryResults) {
         for (const item of result.discovered) {
           discoveredCasinos.push({
@@ -158,6 +180,7 @@ export async function processRun(params: {
       });
 
     insertDiscoveredCasinos(params.runId, discoveredCasinos);
+    assertNotCancelled(params.runId);
     persistRunProgress(params.runId, {
       discoveredCasinos,
       missingCasinos,
@@ -189,6 +212,7 @@ export async function processRun(params: {
       let failedTargets = 0;
 
       for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+        assertNotCancelled(params.runId);
         const batch = batches[batchIndex] ?? [];
         if (batch.length === 0) {
           continue;
@@ -198,6 +222,7 @@ export async function processRun(params: {
           batch,
           config.OPENAI_CONCURRENCY,
           async (target): Promise<DiscoveredOffer[]> => {
+            assertNotCancelled(params.runId);
             const separator = target.indexOf("::");
             const state = target.slice(0, separator) as StateAbbreviation;
             const casinoName = target.slice(separator + 2);
@@ -229,6 +254,7 @@ export async function processRun(params: {
           }
         );
 
+        assertNotCancelled(params.runId);
         const flattenedBatchOffers = batchOffers.flat();
         if (flattenedBatchOffers.length > 0) {
           insertDiscoveredOffers(params.runId, flattenedBatchOffers);
@@ -271,6 +297,7 @@ export async function processRun(params: {
     }
 
     const offerComparisons = buildOfferComparisons({ mode, groupedCurrentOffers, discoveredOffers });
+    assertNotCancelled(params.runId);
     if (mode !== "discover_casinos") {
       insertComparisons(params.runId, offerComparisons);
       insertStageEvent({ runId: params.runId, stage: "comparison", status: "completed" });
@@ -286,6 +313,7 @@ export async function processRun(params: {
     }
 
     const usage = calculateUsage(discoveryCalls, offerCalls);
+    assertNotCancelled(params.runId);
 
     updateRunReport(params.runId, {
       discoveredCasinos,
@@ -302,8 +330,11 @@ export async function processRun(params: {
       stage: "pipeline",
       status: "failed",
       reason: message,
-      impact: "Run failed before report finalization",
-      suggestedNextStep: "Review logs and rerun"
+      impact:
+        error instanceof RunCancelledError
+          ? "Run was cancelled before report finalization"
+          : "Run failed before report finalization",
+      suggestedNextStep: error instanceof RunCancelledError ? "Re-run when ready" : "Review logs and rerun"
     });
     persistRunProgress(params.runId, {
       discoveredCasinos,
@@ -312,5 +343,7 @@ export async function processRun(params: {
       issues,
       usage: calculateUsage(discoveryCalls, offerCalls)
     });
+  } finally {
+    clearRunCancellation(params.runId);
   }
 }

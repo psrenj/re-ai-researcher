@@ -150,9 +150,14 @@ export function ComparisonsTable({
                   >
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge className={verdictClass(item.verdict)}>{item.verdict}</Badge>
-                      <p className="text-xs text-slate-500">
-                        Delta bonus: {formatMoney(item.bonusDelta)} | Confidence: {Math.round(item.confidence * 100)}%
-                      </p>
+                      {item.discoveredOffer ? (
+                        <p className="text-xs text-slate-500">
+                          Delta bonus: {formatMoney(item.bonusDelta)} | Confidence: {Math.round(item.confidence * 100)}
+                          %
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-500">No discovered offer yet.</p>
+                      )}
                     </div>
 
                     <div className="mt-2 grid gap-4 md:grid-cols-2">

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { ActionSidebar } from "@/components/ActionSidebar";
 import { Card, CardContent } from "@/components/ui/card";
-import { getBaselineOffers, getRunReport, listRuns } from "@/lib/api";
+import { getBaselineOffers, listRuns } from "@/lib/api";
+import { loadLatestComparisonSnapshot } from "@/lib/comparison-source";
 
 type StateAbbr = "NJ" | "MI" | "PA" | "WV";
 
@@ -18,8 +19,8 @@ export default async function TrackedStatePage({
   const state = abbr.toUpperCase() as StateAbbr;
   const offers = await getBaselineOffers({ state }).catch(() => []);
   const runs = await listRuns().catch(() => []);
-  const latest = runs[0];
-  const latestReport = latest ? await getRunReport(latest.id).catch(() => null) : null;
+  const snapshot = await loadLatestComparisonSnapshot(runs);
+  const latestReport = snapshot.report;
 
   const byCasino = new Map<
     string,
@@ -72,6 +73,21 @@ export default async function TrackedStatePage({
           <h1 className="text-2xl font-bold">Tracked Casinos: {state}</h1>
           <p className="mt-2 text-sm text-slate-600">
             Total tracked casinos: {casinos.length} | Offer rows: {offers.length}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {snapshot.source.strategy === "full"
+              ? `Comparison source: full run ${snapshot.source.fullRun.id.slice(0, 8)}`
+              : snapshot.source.strategy === "composed"
+                ? `Comparison source: ${
+                    snapshot.source.offersRun
+                      ? `offers ${snapshot.source.offersRun.id.slice(0, 8)}`
+                      : "offers n/a"
+                  } + ${
+                    snapshot.source.casinosRun
+                      ? `casinos ${snapshot.source.casinosRun.id.slice(0, 8)}`
+                      : "casinos n/a"
+                  }`
+                : "Comparison source: no completed run source"}
           </p>
           <Link href="/tracked-casinos" className="mt-2 inline-block text-sm app-link">
             Back to tracked overview

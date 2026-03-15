@@ -159,7 +159,12 @@ export function mapRunToSummary(row: RunRow): RunSummary {
   if (summary) {
     return {
       ...summary,
-      mode: summary.mode ?? row.mode ?? "full"
+      status: row.status,
+      trigger: row.trigger,
+      mode: summary.mode ?? row.mode ?? "full",
+      startedAt: row.started_at ?? summary.startedAt,
+      completedAt: row.completed_at ?? summary.completedAt,
+      createdAt: row.created_at
     };
   }
   return {

@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { ActionSidebar } from "@/components/ActionSidebar";
+import { RunsTable } from "@/components/RunsTable";
 import { Card, CardContent } from "@/components/ui/card";
 import { listRuns } from "@/lib/api";
 
@@ -30,47 +30,7 @@ export default async function RunsPage() {
 
         <Card>
           <CardContent>
-            <div className="overflow-x-auto">
-              <table className="app-table w-full min-w-[760px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-border text-slate-500">
-                    <th className="py-2">Run</th>
-                    <th className="py-2">Status</th>
-                    <th className="py-2">Trigger</th>
-                    <th className="py-2">Mode</th>
-                    <th className="py-2">Missing</th>
-                    <th className="py-2">Better</th>
-                    <th className="py-2">Created</th>
-                    <th className="py-2">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {runs.map((run) => (
-                    <tr key={run.id} className="border-b border-border/70">
-                      <td className="py-3 font-mono text-xs">{run.id.slice(0, 8)}</td>
-                      <td className="py-3">{run.status}</td>
-                      <td className="py-3">{run.trigger}</td>
-                      <td className="py-3">{run.mode}</td>
-                      <td className="py-3">{run.missingCount}</td>
-                      <td className="py-3">{run.betterCount}</td>
-                      <td className="py-3">{new Date(run.createdAt).toLocaleString()}</td>
-                      <td className="py-3">
-                        <Link href={`/runs/${run.id}`} className="app-link">
-                          Open
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                  {runs.length === 0 ? (
-                    <tr>
-                      <td className="py-3 text-slate-500" colSpan={8}>
-                        No runs yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <RunsTable initialRuns={runs} />
           </CardContent>
         </Card>
       </div>

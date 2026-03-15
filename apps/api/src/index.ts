@@ -14,7 +14,9 @@ import {
   getRunReport,
   getRunStageEvents,
   listRuns,
-  mapRunToSummary
+  mapRunToSummary,
+  requestRunCancellation,
+  resolveRunReference
 } from "./repository.js";
 import { processRun } from "./pipeline.js";
 import { apiKeyMiddleware } from "./auth.js";
@@ -246,6 +248,47 @@ app.get("/api/runs/:runId/llm-traces", (c) => {
   const items = listLlmTraces({ runId, stage, status, limit });
 
   return c.json({ items });
+});
+
+app.post("/api/runs/:runId/cancel", (c) => {
+  const runRef = c.req.param("runId");
+  const resolution = resolveRunReference(runRef);
+
+  if (resolution.status === "not_found") {
+    return c.json({ error: "Run not found", runRef }, 404);
+  }
+  if (resolution.status === "ambiguous") {
+    return c.json(
+      {
+        error: "Ambiguous run id prefix",
+        runRef,
+        matches: resolution.matches
+      },
+      409
+    );
+  }
+
+  const result = requestRunCancellation(resolution.runId);
+  if (result.status === "not_found") {
+    return c.json({ error: "Run not found", runRef }, 404);
+  }
+  if (result.status === "not_active") {
+    return c.json(
+      {
+        error: "Run is not active",
+        runId: result.runId,
+        status: result.currentStatus
+      },
+      409
+    );
+  }
+
+  return c.json({
+    cancelled: true,
+    runId: result.runId,
+    previousStatus: result.previousStatus,
+    matchedBy: resolution.matchedBy
+  });
 });
 
 serve({

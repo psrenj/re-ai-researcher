@@ -1,7 +1,12 @@
 import { ActionSidebar } from "@/components/ActionSidebar";
 import { KpiStrip } from "@/components/KpiStrip";
 import { StateBreakdown } from "@/components/StateBreakdown";
-import { getBaselineStats, getRunReport, listRuns } from "@/lib/api";
+import { getBaselineCasinos, getBaselineStats, listRuns } from "@/lib/api";
+import { loadLatestComparisonSnapshot } from "@/lib/comparison-source";
+
+function normalizeCasinoKey(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, " ").trim();
+}
 
 export default async function HomePage() {
   let runs = [] as Awaited<ReturnType<typeof listRuns>>;
@@ -11,16 +16,29 @@ export default async function HomePage() {
   } catch (error) {
     runsError = error instanceof Error ? error.message : "Failed to load runs";
   }
-  const latest = runs[0];
-  let report = null as Awaited<ReturnType<typeof getRunReport>> | null;
+  let report = null as Awaited<ReturnType<typeof loadLatestComparisonSnapshot>>["report"];
   let reportError: string | null = null;
-  if (latest) {
-    try {
-      report = await getRunReport(latest.id);
-    } catch (error) {
-      reportError = error instanceof Error ? error.message : "Failed to load latest report";
-    }
+  const comparisonSnapshot = await loadLatestComparisonSnapshot(runs).catch((error) => {
+    reportError = error instanceof Error ? error.message : "Failed to load latest report";
+    return null;
+  });
+  if (comparisonSnapshot) {
+    report = comparisonSnapshot.report;
   }
+  const sourceLabel =
+    comparisonSnapshot?.source.strategy === "full"
+      ? `Comparison source: full run ${comparisonSnapshot.source.fullRun.id.slice(0, 8)}`
+      : comparisonSnapshot?.source.strategy === "composed"
+        ? `Comparison source: ${
+            comparisonSnapshot.source.offersRun
+              ? `offers ${comparisonSnapshot.source.offersRun.id.slice(0, 8)}`
+              : "offers n/a"
+          } + ${
+            comparisonSnapshot.source.casinosRun
+              ? `casinos ${comparisonSnapshot.source.casinosRun.id.slice(0, 8)}`
+              : "casinos n/a"
+          }`
+        : "Comparison source: no completed run source";
   let baselineStats = null as Awaited<ReturnType<typeof getBaselineStats>> | null;
   let baselineError: string | null = null;
   try {
@@ -28,15 +46,21 @@ export default async function HomePage() {
   } catch (error) {
     baselineError = error instanceof Error ? error.message : "Failed to load baseline stats";
   }
+  const baselineCasinos = await getBaselineCasinos().catch(() => []);
+  const trackedCasinoKeySet = new Set(
+    baselineCasinos.map((casino) => `${casino.state}::${normalizeCasinoKey(casino.casinoName)}`)
+  );
+  const trackedComparisons = (report?.offerComparisons ?? []).filter((comparison) =>
+    trackedCasinoKeySet.has(`${comparison.state}::${normalizeCasinoKey(comparison.casinoName)}`)
+  );
+  const actionableComparisons = trackedComparisons.filter((item) => item.verdict !== "same");
   const stateBreakdown = (["NJ", "MI", "PA", "WV"] as const).map((state) => {
-    const tracked =
-      baselineStats?.byState.find((item) => item.state === state)?.trackedCasinos ??
-      (report?.offerComparisons.filter((item) => item.state === state).length ?? 0);
+    const tracked = actionableComparisons.filter((item) => item.state === state).length;
     const missing = report?.missingCasinos.filter((item) => item.state === state).length ?? 0;
-    const better = report?.offerComparisons.filter(
+    const better = actionableComparisons.filter(
       (item) => item.state === state && item.verdict === "better"
     ).length ?? 0;
-    const unclear = report?.offerComparisons.filter(
+    const unclear = actionableComparisons.filter(
       (item) => item.state === state && item.verdict === "unclear"
     ).length ?? 0;
     return { state, tracked, missing, better, unclear };
@@ -70,18 +94,20 @@ export default async function HomePage() {
               Baseline tracked casinos: {baselineStats.totalTrackedCasinos} ({baselineStats.totalOfferRows} offer rows)
             </p>
           ) : null}
+          <p className="mt-1 text-xs text-slate-500">{sourceLabel}</p>
         </header>
 
         <div className="rounded-2xl border border-border bg-white lg:hidden">
           <ActionSidebar activeNav="dashboard" />
         </div>
 
-        {latest ? (
+        {baselineStats || report ? (
           <KpiStrip
-            tracked={baselineStats?.totalTrackedCasinos ?? latest.comparisonCount}
-            missing={latest.missingCount}
-            better={latest.betterCount}
-            unclear={latest.unclearCount}
+            tracked={actionableComparisons.length}
+            missing={report?.missingCasinos.length ?? 0}
+            better={actionableComparisons.filter((item) => item.verdict === "better").length}
+            unclear={actionableComparisons.filter((item) => item.verdict === "unclear").length}
+            trackedLabel="Actionable Casinos"
           />
         ) : null}
 
