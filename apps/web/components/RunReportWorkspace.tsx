@@ -11,22 +11,35 @@ import { RunOverviewSection } from "@/components/run-report/RunOverviewSection";
 import { RunSidebar } from "@/components/run-report/RunSidebar";
 import { buildStateDrilldown, type Section } from "@/components/run-report/types";
 
+function normalizeCasinoKey(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
 export function RunReportWorkspace({
   report,
   reportReady = true,
-  llmTraces = []
+  llmTraces = [],
+  trackedCasinoKeys
 }: {
   report: RunReport;
   reportReady?: boolean;
   llmTraces?: LlmTrace[];
+  trackedCasinoKeys?: string[];
 }) {
   const [section, setSection] = useState<Section>(reportReady ? "overview" : "logs");
+  const trackedKeySet = new Set(trackedCasinoKeys ?? []);
+  const scopedComparisons =
+    trackedKeySet.size > 0
+      ? report.offerComparisons.filter((item) =>
+          trackedKeySet.has(`${item.state}::${normalizeCasinoKey(item.casinoName)}`)
+        )
+      : report.offerComparisons;
 
-  const better = report.offerComparisons.filter((item) => item.verdict === "better").length;
-  const unclear = report.offerComparisons.filter((item) => item.verdict === "unclear").length;
+  const better = scopedComparisons.filter((item) => item.verdict === "better").length;
+  const unclear = scopedComparisons.filter((item) => item.verdict === "unclear").length;
   const actionableTotal = better + unclear;
   const failedTraceCount = llmTraces.filter((item) => item.status !== "parsed").length;
-  const stateDrilldown = buildStateDrilldown(report);
+  const stateDrilldown = buildStateDrilldown(report, scopedComparisons);
 
   return (
     <div className="relative">
@@ -78,7 +91,7 @@ export function RunReportWorkspace({
           />
         ) : null}
 
-        {section === "offers" ? <ComparisonsTable comparisons={report.offerComparisons} /> : null}
+        {section === "offers" ? <ComparisonsTable comparisons={scopedComparisons} /> : null}
 
         {section === "logs" ? <RunLogsSection report={report} llmTraces={llmTraces} /> : null}
       </section>

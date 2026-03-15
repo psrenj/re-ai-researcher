@@ -2,7 +2,11 @@ import Link from "next/link";
 import type { RunReport } from "@re-ai/shared";
 import { RunAutoRefresh } from "@/components/RunAutoRefresh";
 import { RunReportWorkspace } from "@/components/RunReportWorkspace";
-import { getRun, getRunLlmTraces, getRunLogs, getRunReport } from "@/lib/api";
+import { getBaselineCasinos, getRun, getRunLlmTraces, getRunLogs, getRunReport } from "@/lib/api";
+
+function normalizeCasinoKey(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, " ").trim();
+}
 
 export default async function RunPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -10,6 +14,9 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
   const run = report ? report.run : await getRun(id).catch(() => null);
   const logs = report ? null : await getRunLogs(id).catch(() => ({ stageEvents: [], issues: [] }));
   const llmTraces = await getRunLlmTraces(id, { limit: 300 }).catch(() => []);
+  const baselineCasinos = await getBaselineCasinos().catch(() => null);
+  const trackedCasinoKeys =
+    baselineCasinos?.map((item) => `${item.state}::${normalizeCasinoKey(item.casinoName)}`) ?? undefined;
 
   if (!run) {
     return (
@@ -53,6 +60,7 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
         report={hydratedReport}
         reportReady={run.status === "completed" || run.status === "failed"}
         llmTraces={llmTraces}
+        trackedCasinoKeys={trackedCasinoKeys}
       />
     </div>
   );
