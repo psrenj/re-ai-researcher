@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { config } from "./config.js";
 import { initDb, sqlite } from "./db.js";
 import { processRun } from "./pipeline.js";
-import { createRun, getRunReport } from "./repository.js";
+import { createRun, getRun, getRunReport, requestRunCancellation } from "./repository.js";
 import type { ResearchProvider } from "./types.js";
 
 const mockProvider: ResearchProvider = {
@@ -34,7 +34,7 @@ const mockProvider: ResearchProvider = {
 describe("processRun", () => {
   it("creates a report with comparisons and missing casinos", async () => {
     initDb();
-    sqlite.exec("DELETE FROM runs; DELETE FROM discovered_casinos; DELETE FROM discovered_offers; DELETE FROM comparisons; DELETE FROM source_offers_snapshot; DELETE FROM run_issues; DELETE FROM run_stage_events; DELETE FROM llm_traces;");
+    sqlite.exec("DELETE FROM runs; DELETE FROM discovered_casinos; DELETE FROM discovered_offers; DELETE FROM comparisons; DELETE FROM source_offers_snapshot; DELETE FROM run_issues; DELETE FROM run_stage_events; DELETE FROM llm_traces; DELETE FROM run_cancellations;");
 
     const runId = randomUUID();
     createRun({ id: runId, trigger: "manual", mode: "full", states: ["NJ"] });
@@ -64,7 +64,7 @@ describe("processRun", () => {
 
   it("processes all offer targets in batches without skipping remainders", async () => {
     initDb();
-    sqlite.exec("DELETE FROM runs; DELETE FROM discovered_casinos; DELETE FROM discovered_offers; DELETE FROM comparisons; DELETE FROM source_offers_snapshot; DELETE FROM run_issues; DELETE FROM run_stage_events; DELETE FROM llm_traces;");
+    sqlite.exec("DELETE FROM runs; DELETE FROM discovered_casinos; DELETE FROM discovered_offers; DELETE FROM comparisons; DELETE FROM source_offers_snapshot; DELETE FROM run_issues; DELETE FROM run_stage_events; DELETE FROM llm_traces; DELETE FROM run_cancellations;");
 
     const runId = randomUUID();
     createRun({ id: runId, trigger: "manual", mode: "full", states: ["NJ"] });
@@ -108,5 +108,29 @@ describe("processRun", () => {
     expect(report).not.toBeNull();
     expect(report?.offerComparisons.length).toBe(41);
     expect(report?.stageEvents.filter((event) => event.stage === "offer_discovery_batch").length).toBe(expectedBatches);
+  });
+
+  it("keeps run failed when cancellation is requested before processing", async () => {
+    initDb();
+    sqlite.exec("DELETE FROM runs; DELETE FROM discovered_casinos; DELETE FROM discovered_offers; DELETE FROM comparisons; DELETE FROM source_offers_snapshot; DELETE FROM run_issues; DELETE FROM run_stage_events; DELETE FROM llm_traces; DELETE FROM run_cancellations;");
+
+    const runId = randomUUID();
+    createRun({ id: runId, trigger: "manual", mode: "full", states: ["NJ"] });
+
+    const cancel = requestRunCancellation(runId);
+    expect(cancel.status).toBe("cancelled");
+
+    await processRun({
+      runId,
+      states: ["NJ"],
+      provider: mockProvider,
+      fetchOffers: async () => []
+    });
+
+    const run = getRun(runId);
+    const report = getRunReport(runId);
+    expect(run?.status).toBe("failed");
+    expect(run?.error_message).toBe("Cancelled by user");
+    expect(report?.run.status).toBe("failed");
   });
 });

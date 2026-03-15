@@ -1,4 +1,5 @@
 import type { RunReport } from "@re-ai/shared";
+import type { OfferComparison } from "@re-ai/shared";
 
 export type Section = "overview" | "casinos" | "offers" | "logs";
 
@@ -27,11 +28,14 @@ export type StateDrilldownSection = {
   items: StateDrilldownItem[];
 };
 
-export function buildStateDrilldown(report: RunReport): StateDrilldownSection[] {
+export function buildStateDrilldown(
+  report: RunReport,
+  comparisons: OfferComparison[] = report.offerComparisons
+): StateDrilldownSection[] {
   return (["NJ", "MI", "PA", "WV"] as const).map((state) => {
     const map = new Map<string, StateDrilldownItem>();
 
-    const actionableComparisons = report.offerComparisons.filter(
+    const actionableComparisons = comparisons.filter(
       (item) => item.state === state && (item.verdict === "better" || item.verdict === "unclear")
     );
 

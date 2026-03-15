@@ -48,7 +48,7 @@ export function ActionSidebar({
   const router = useRouter();
   const [loadingMode, setLoadingMode] = useState<RunMode | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [confirmFullRunOpen, setConfirmFullRunOpen] = useState(false);
+  const [confirmMode, setConfirmMode] = useState<RunMode | null>(null);
 
   const navItems: NavItem[] = [
     { key: "dashboard", href: "/", label: "Dashboard" },
@@ -96,12 +96,22 @@ export function ActionSidebar({
   }
 
   async function trigger(mode: RunMode) {
-    if (mode === "full") {
-      setConfirmFullRunOpen(true);
-      return;
-    }
-    await queueRun(mode);
+    setConfirmMode(mode);
   }
+
+  const confirmTitle =
+    confirmMode === "full"
+      ? "Confirm Full Research Run"
+      : confirmMode === "discover_casinos"
+        ? "Confirm Casino Discovery"
+        : "Confirm Offer Discovery";
+
+  const confirmDescription =
+    confirmMode === "full"
+      ? "This will run casino discovery and offer discovery across the configured states."
+      : confirmMode === "discover_casinos"
+        ? "This will run casino discovery only and update coverage/missing-casino findings."
+        : "This will run offer discovery only for tracked casinos.";
 
   return (
     <div className="flex h-full flex-col bg-slate-50">
@@ -173,19 +183,19 @@ export function ActionSidebar({
         {message ? <p className="mt-4 px-1 text-xs text-slate-600">{message}</p> : null}
       </div>
 
-      {confirmFullRunOpen ? (
+      {confirmMode ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
           <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
-            <h3 className="text-base font-semibold">Confirm Full Research Run</h3>
-            <p className="mt-2 text-sm text-slate-600">
-              This will run casino discovery and offer discovery across the configured states.
-            </p>
+            <h3 className="text-base font-semibold">{confirmTitle}</h3>
+            <p className="mt-2 text-sm text-slate-600">{confirmDescription}</p>
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={async () => {
-                  setConfirmFullRunOpen(false);
-                  await queueRun("full");
+                  const mode = confirmMode;
+                  setConfirmMode(null);
+                  if (!mode) return;
+                  await queueRun(mode);
                 }}
                 className="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-100"
                 disabled={loadingMode !== null}
@@ -194,7 +204,7 @@ export function ActionSidebar({
               </button>
               <button
                 type="button"
-                onClick={() => setConfirmFullRunOpen(false)}
+                onClick={() => setConfirmMode(null)}
                 className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 disabled={loadingMode !== null}
               >

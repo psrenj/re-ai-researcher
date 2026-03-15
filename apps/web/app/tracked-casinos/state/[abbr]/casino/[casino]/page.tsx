@@ -3,7 +3,8 @@ import { ActionSidebar } from "@/components/ActionSidebar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/components/ui/cn";
-import { getBaselineOffers, getRunReport, listRuns } from "@/lib/api";
+import { getBaselineOffers, listRuns } from "@/lib/api";
+import { loadLatestComparisonSnapshot } from "@/lib/comparison-source";
 
 type StateAbbr = "NJ" | "MI" | "PA" | "WV";
 
@@ -21,12 +22,20 @@ export default async function TrackedCasinoPage({
   const casinoName = decodeURIComponent(casino);
   const offers = await getBaselineOffers({ state, casino: casinoName }).catch(() => []);
   const runs = await listRuns().catch(() => []);
-  const latest = runs[0];
-  const latestReport = latest ? await getRunReport(latest.id).catch(() => null) : null;
+  const snapshot = await loadLatestComparisonSnapshot(runs);
+  const latestReport = snapshot.report;
   const latestComparison =
     latestReport?.offerComparisons.find(
       (item) => item.state === state && normalizeCasinoKey(item.casinoName) === normalizeCasinoKey(casinoName)
     ) ?? null;
+  const sourceLabel =
+    snapshot.source.strategy === "full"
+      ? `Source: full run ${snapshot.source.fullRun.id.slice(0, 8)}`
+      : snapshot.source.strategy === "composed"
+        ? `Source: ${
+            snapshot.source.offersRun ? `offers ${snapshot.source.offersRun.id.slice(0, 8)}` : "offers n/a"
+          } + ${snapshot.source.casinosRun ? `casinos ${snapshot.source.casinosRun.id.slice(0, 8)}` : "casinos n/a"}`
+        : "Source: no completed comparison source";
 
   return (
     <div className="space-y-6">
@@ -50,6 +59,7 @@ export default async function TrackedCasinoPage({
             {casinoName} ({state})
           </h1>
           <p className="mt-2 text-sm text-slate-600">Tracked offers: {offers.length}</p>
+          <p className="mt-1 text-xs text-slate-500">{sourceLabel}</p>
           <Link href={`/tracked-casinos/state/${state}`} className="mt-2 inline-block text-sm app-link">
             Back to {state} casinos
           </Link>
@@ -73,10 +83,14 @@ export default async function TrackedCasinoPage({
                   >
                     {latestComparison.verdict}
                   </Badge>
-                  <p className="text-xs text-slate-500">
-                    {latest ? `Run ${latest.id.slice(0, 8)}` : "Latest run"} | Confidence{" "}
-                    {Math.round(latestComparison.confidence * 100)}%
-                  </p>
+                  {latestComparison.discoveredOffer ? (
+                    <p className="text-xs text-slate-500">
+                      Confidence{" "}
+                      {Math.round(latestComparison.confidence * 100)}%
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-500">No discovered offer yet.</p>
+                  )}
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">

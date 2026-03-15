@@ -27,6 +27,16 @@ import {
 } from "./repositoryHelpers.js";
 import type { DiscoveredCasinoRow, LlmTraceRow, RunIssueRow, RunRow, RunStageEventRow } from "./repositoryRows.js";
 
+export type RunReferenceResolution =
+  | { status: "resolved"; runId: string; matchedBy: "exact" | "prefix" }
+  | { status: "not_found" }
+  | { status: "ambiguous"; matches: string[] };
+
+export type RunCancellationResult =
+  | { status: "cancelled"; runId: string; previousStatus: "queued" | "running" }
+  | { status: "not_found" }
+  | { status: "not_active"; runId: string; currentStatus: "completed" | "failed" };
+
 export function createRun(params: {
   id: string;
   trigger: "manual" | "scheduled";
@@ -62,7 +72,7 @@ export function setRunCompleted(params: {
     .prepare(
       `UPDATE runs
          SET status = 'completed', completed_at = ?, summary_json = ?, report_json = ?, usage_json = ?
-       WHERE id = ?`
+       WHERE id = ? AND status != 'failed'`
     )
     .run(nowIso(), JSON.stringify(params.summary), JSON.stringify(params.report), JSON.stringify(params.usage), params.id);
 }
@@ -235,6 +245,82 @@ export function insertLlmTrace(params: {
 
 export function getRun(id: string): RunRow | undefined {
   return sqlite.prepare(`SELECT * FROM runs WHERE id = ?`).get(id) as RunRow | undefined;
+}
+
+export function requestRunCancellation(runId: string): RunCancellationResult {
+  const run = getRun(runId);
+  if (!run) {
+    return { status: "not_found" };
+  }
+
+  if (run.status !== "queued" && run.status !== "running") {
+    return {
+      status: "not_active",
+      runId,
+      currentStatus: run.status
+    };
+  }
+
+  const tx = sqlite.transaction((id: string, previousStatus: "queued" | "running") => {
+    sqlite
+      .prepare(
+        `INSERT INTO run_cancellations (run_id, requested_at)
+         VALUES (?, ?)
+         ON CONFLICT(run_id) DO UPDATE SET requested_at = excluded.requested_at`
+      )
+      .run(id, nowIso());
+    sqlite
+      .prepare(`UPDATE runs SET status = 'failed', completed_at = ?, error_message = ? WHERE id = ?`)
+      .run(nowIso(), "Cancelled by user", id);
+    return {
+      status: "cancelled" as const,
+      runId: id,
+      previousStatus
+    };
+  });
+
+  return tx(runId, run.status);
+}
+
+export function isRunCancellationRequested(runId: string): boolean {
+  const row = sqlite
+    .prepare(`SELECT 1 AS found FROM run_cancellations WHERE run_id = ? LIMIT 1`)
+    .get(runId) as { found: number } | undefined;
+  return Boolean(row?.found);
+}
+
+export function clearRunCancellation(runId: string): void {
+  sqlite.prepare(`DELETE FROM run_cancellations WHERE run_id = ?`).run(runId);
+}
+
+export function resolveRunReference(runRef: string): RunReferenceResolution {
+  const normalized = runRef.trim();
+  if (!normalized) {
+    return { status: "not_found" };
+  }
+
+  const exact = getRun(normalized);
+  if (exact) {
+    return { status: "resolved", runId: exact.id, matchedBy: "exact" };
+  }
+
+  const prefixMatches = sqlite
+    .prepare(`SELECT id FROM runs WHERE id LIKE ? ORDER BY created_at DESC LIMIT 6`)
+    .all(`${normalized}%`) as Array<{ id: string }>;
+  const uniqueMatches = Array.from(new Set(prefixMatches.map((item) => item.id)));
+
+  if (uniqueMatches.length === 0) {
+    return { status: "not_found" };
+  }
+  if (uniqueMatches.length === 1) {
+    const [runId] = uniqueMatches;
+    if (!runId) {
+      return { status: "not_found" };
+    }
+    return { status: "resolved", runId, matchedBy: "prefix" };
+  }
+
+  return { status: "ambiguous", matches: uniqueMatches.slice(0, 5) };
 }
 
 export function getRunReport(id: string): RunReport | null {
