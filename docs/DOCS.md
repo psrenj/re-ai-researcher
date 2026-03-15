@@ -75,7 +75,7 @@ Model iteration notes (encountered during implementation):
 - Next pass used `gpt-5-nano`. It was faster, but accuracy dropped for extraction/comparison reliability.
 - In tuning runs, `gpt-5-mini` produced a better speed/accuracy balance for web research in this demo context.
 - Current request handling enforces `reasoning.effort=medium` as the quality/cost baseline.
-- Model selection remains env-configurable (repository defaults are `gpt-4.1-mini` for discovery and `gpt-4.1` for extraction), so deployment can switch to `gpt-5-mini` when preferred.
+- Model selection remains env-configurable (current defaults use `gpt-5-mini` for discovery and extraction).
 
 Trade-off:
 - Vendor concentration
